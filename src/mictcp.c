@@ -7,6 +7,9 @@ mic_tcp_pdu create_nopayload_pdu(char syn, char ack, char fin, int seq_num, int 
 
     mic_tcp_pdu pdu;
     mic_tcp_header pdu_header;
+    mic_tcp_payload pdu_payload;
+    pdu_payload.data = NULL;
+    pdu_payload.size = 0;
     pdu_header.source_port = source_port;
     pdu_header.dest_port = remote_port;
     pdu_header.syn = syn;
@@ -15,6 +18,7 @@ mic_tcp_pdu create_nopayload_pdu(char syn, char ack, char fin, int seq_num, int 
     pdu_header.seq_num = seq_num;
     pdu_header.ack_num = ack_num;
     pdu.header = pdu_header;
+    pdu.payload = pdu_payload;
 
     return pdu;
 
@@ -56,7 +60,7 @@ int mic_tcp_bind(int socket, mic_tcp_sock_addr addr)
 {
    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
    global_socket.local_addr = addr;
-   return -1;
+   return 0;
 }
 
 /*
@@ -67,22 +71,31 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr)
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
 
-    mic_tcp_pdu* received_pdu;
-    mic_tcp_sock_addr* sender_addr;
+    mic_tcp_pdu* received_pdu = NULL;
+    mic_tcp_ip_addr* remote_ip_addr = NULL;
 
-    int result = IP_recv(received_pdu, &global_socket.local_addr, addr, 0);
+    printf("[MIC-TCP] Reception du SYN...\n");
+    int result = IP_recv(received_pdu, &global_socket.local_addr.ip_addr, remote_ip_addr, 100000);
     if (result == -1) return -1;
     if (!verify_pdu(received_pdu, 1, 0, 0, 0, 0)) return -1;
+    int remote_port = received_pdu->header.source_port;
+    printf("[MIC-TCP] Reception du SYN... OK\n");
 
-    mic_tcp_pdu response = create_nopayload_pdu(1, 1, 0, 0, 0, global_socket.local_addr.port, addr->port);
-    result = IP_send(response, sender_addr->ip_addr);
+    printf("[MIC-TCP] Envoi de SYN+ACK... \n");
+    mic_tcp_pdu response = create_nopayload_pdu(1, 1, 0, 0, 0, global_socket.local_addr.port, remote_port);
+    result = IP_send(response, *remote_ip_addr);
     if (result == -1) return -1;
+    printf("[MIC-TCP] Envoi de SYN+ACK... OK\n");
 
-    result = IP_recv(received_pdu, &global_socket.local_addr, addr, 1000);
+    printf("[MIC-TCP] Reception du ACK...\n");
+    result = IP_recv(received_pdu, &global_socket.local_addr.ip_addr, remote_ip_addr, 1000);
     if (result == -1) return -1;
     if (!verify_pdu(received_pdu, 0, 1, 0, 0, 0)) return -1;
+    printf("[MIC-TCP] Reception du ACK... OK\n");
 
-    global_socket.remote_addr = *sender_addr;
+    global_socket.remote_addr.ip_addr = *remote_ip_addr;
+    global_socket.remote_addr.port = remote_port;
+    addr = &global_socket.remote_addr;
 
     return 0;
 }
@@ -95,18 +108,24 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
 
+    printf("[MIC-TCP] Envoi du SYN...\n");
     mic_tcp_pdu connect_req = create_nopayload_pdu(1, 0, 0, 0, 0, global_socket.local_addr.port, addr.port);
     int result = IP_send(connect_req, addr.ip_addr);
     if (result == -1) return -1;
+    printf("[MIC-TCP] Envoi du SYN... OK\n");
 
-    mic_tcp_pdu* received_pdu;
-    result = IP_recv(received_pdu, &global_socket.local_addr, NULL, 1000);
+    printf("[MIC-TCP] Reception du SYN+ACK...\n");
+    mic_tcp_pdu* received_pdu = NULL;
+    result = IP_recv(received_pdu, &global_socket.local_addr.ip_addr, NULL, 1000);
     if (result == -1) return -1;
     if (!verify_pdu(received_pdu, 1, 1, 0, 0, 0)) return -1;
+    printf("[MIC-TCP] Reception du SYN+ACK... OK\n");
 
+    printf("[MIC-TCP] Envoi du ACK...\n");
     mic_tcp_pdu ack_response = create_nopayload_pdu(0, 1, 0, 0, 0, global_socket.local_addr.port, addr.port);
     result = IP_send(ack_response, addr.ip_addr);
     if (result == -1) return -1;
+    printf("[MIC-TCP] Envoi du ACK... OK\n");
 
     global_socket.remote_addr = addr;
 
@@ -164,8 +183,8 @@ int mic_tcp_close (int socket)
     int result = IP_send(connect_req, global_socket.remote_addr.ip_addr);
     if (result == -1) return -1;
 
-    mic_tcp_pdu* received_pdu;
-    result = IP_recv(received_pdu, &global_socket.local_addr, NULL, 1000);
+    mic_tcp_pdu* received_pdu = NULL;
+    result = IP_recv(received_pdu, &global_socket.local_addr.ip_addr, NULL, 1000);
     if (result == -1) return -1;
     if (!verify_pdu(received_pdu, 0, 1, 1, 0, 0)) return -1;
 
@@ -195,7 +214,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
         int result = IP_send(fin_ack, remote_addr);
         if (result == -1) return;
 
-        mic_tcp_pdu* received_pdu;
+        mic_tcp_pdu* received_pdu = NULL;
         result = IP_recv(received_pdu, &local_addr, NULL, 1000);
         if (result == -1) return;
         if (!verify_pdu(received_pdu, 0, 1, 0, 0, 0)) return;
