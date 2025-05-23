@@ -161,6 +161,8 @@ int IP_recv(mic_tcp_pdu* pk, mic_tcp_ip_addr* local_addr, mic_tcp_ip_addr* remot
 
         /* Generate a stub address */
         if (remote_addr != NULL) {
+            remote_addr->addr = malloc(INET_ADDRSTRLEN);
+            remote_addr->addr_size = INET_ADDRSTRLEN;
             inet_ntop(AF_INET, &(tmp_addr.sin_addr),remote_addr->addr,remote_addr->addr_size);
             //remote_addr->addr = "localhost";
             remote_addr->addr_size = strlen(remote_addr->addr) + 1; // don't forget '\0'
