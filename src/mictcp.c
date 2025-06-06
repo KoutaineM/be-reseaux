@@ -5,7 +5,7 @@
 
 #define MAX_ATTEMPTS 10
 #define TIMEOUT 1000
-#define LOSS_RATE 20
+#define LOSS_RATE 0
 #define MAX_SOCKETS 20
 
 mic_tcp_sock global_socket;
@@ -88,14 +88,7 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr)
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
 
-    mic_tcp_pdu received_pdu;
-    received_pdu.payload.size = 0;
-    mic_tcp_ip_addr remote_ip_addr;
-
-    int attempt_done = 0 ;
     int result ;
-    char synack_to_send = 1;
-    char ack_received = 0;
 
     pthread_mutex_lock(&connection_lock);
 
@@ -145,7 +138,6 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
 {
     printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
 
-    int attempt_done = 0 ;
     int result ;
     char synack_received = 0 ;
     char syn_to_send = 1 ;
@@ -161,7 +153,7 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
         syn_to_send = 0 ;
         synack_received = 0 ; 
 
-        global_socket.state = SYN_SENT ;
+        global_socket.state = SYN_SENT;
 
         while (!synack_received) 
         {
@@ -185,7 +177,7 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
         }
     }
 
-    //Need to resend ACK if lost
+
     printf("[MIC-TCP] Envoi du ACK...\n");
     mic_tcp_pdu ack_response = create_nopayload_pdu(0, 1, 0, 0, 0, global_socket.local_addr.port, addr.port);
     result = IP_send(ack_response, addr.ip_addr);
@@ -234,7 +226,6 @@ int mic_tcp_send(int mic_sock, char* msg, int msg_size)
     payload.size = msg_size;
     packet.payload = payload;
 
-    int attempt_done = 0 ;
     int result ;
     char msg_to_send = 1 ;
 
@@ -250,7 +241,7 @@ int mic_tcp_send(int mic_sock, char* msg, int msg_size)
 
 
         if (verify_pdu(&received_pdu,1 ,1, 0, 0, 0)) {
-            printf("[MIC-TCP] Received SYN-ACK... of connexion ! Resend ACK \n") ;
+            printf("\e[0;92m[MIC-TCP] Received SYN-ACK... of connexion ! Resend ACK \n\e[0m") ;
             result = has_to_redo_connect() ;
             continue ;
         }
@@ -265,10 +256,7 @@ int mic_tcp_send(int mic_sock, char* msg, int msg_size)
             msg_to_send = 0 ;
         }
 
-        break;
     }
-
-    if (attempt_done >= MAX_ATTEMPTS) return -1;
 
     return msg_size;
 }
@@ -393,6 +381,11 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
             if (!verify_pdu(&pdu, 0, 1, 0, 0, 0)) return;
             global_socket.state = CLOSED;
 
+            break;
+
+        case IDLE:
+        case CLOSED:
+        case SYN_SENT:
             break;
 
     }
