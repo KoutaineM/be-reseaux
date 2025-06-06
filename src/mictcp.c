@@ -1,10 +1,16 @@
 #include <mictcp.h>
 #include <api/mictcp_core.h>
+#include <time.h> 
+#include <errno.h>
 
 #define MAX_ATTEMPTS 10
 #define TIMEOUT 1000
+#define LOSS_RATE 20
+#define MAX_SOCKETS 20
 
 mic_tcp_sock global_socket;
+pthread_mutex_t connection_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t connection_cond = PTHREAD_COND_INITIALIZER;
 
 mic_tcp_pdu create_nopayload_pdu(char syn, char ack, char fin, int seq_num, int ack_num, int source_port, int remote_port) {
 
@@ -27,6 +33,9 @@ mic_tcp_pdu create_nopayload_pdu(char syn, char ack, char fin, int seq_num, int 
 
 }
 
+/*
+* Verifying the PDU and label number
+*/
 char verify_pdu(mic_tcp_pdu* pdu, char syn, char ack, char fin, int seq_num, int ack_num) {
 
     mic_tcp_header* header = &(pdu->header);
@@ -44,14 +53,15 @@ char verify_pdu(mic_tcp_pdu* pdu, char syn, char ack, char fin, int seq_num, int
  */
 int mic_tcp_socket(start_mode sm)
 {
-   int result = -1;
+   int result;
    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
    result = initialize_components(sm); /* Appel obligatoire */
-   set_loss_rate(10);
+   set_loss_rate(LOSS_RATE);
 
    if (result == -1) return -1;
    global_socket.fd = 1;
 
+   printf("[MIC-TCP] Socket Created \n") ;
    return global_socket.fd;
 }
 
@@ -64,6 +74,9 @@ int mic_tcp_bind(int socket, mic_tcp_sock_addr addr)
    printf("[MIC-TCP] Appel de la fonction: ");  printf(__FUNCTION__); printf("\n");
    global_socket.local_addr = addr;
    global_socket.state = IDLE ;
+
+   printf("[MIC-TCP] Socket Binded \n") ;
+
    return 0;
 }
 
@@ -81,58 +94,47 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr)
 
     int attempt_done = 0 ;
     int result ;
+    char synack_to_send = 1;
+    char ack_received = 0;
 
-    printf("[MIC-TCP] Reception du SYN...\n");
-    result = IP_recv(&received_pdu, &global_socket.local_addr.ip_addr, &remote_ip_addr, 0); //No TIMEOUT
-    if (result == -1) return -1;
-    if (!verify_pdu(&received_pdu, 1, 0, 0, 0, 0)) return -1;
-    int remote_port = received_pdu.header.source_port;
-    printf("[MIC-TCP] Reception du SYN... OK\n");
+    pthread_mutex_lock(&connection_lock);
 
-    global_socket.state = SYN_RECEIVED ;
+    global_socket.state = ACCEPTING;
 
-    while (attempt_done++<MAX_ATTEMPTS) {
+    // Attente reception SYN
+    if (pthread_cond_wait(&connection_cond, &connection_lock) != 0) {
+        printf("[MIC-TCP] Error in SYN condition wait.");
+        return -1;
+    }
+
+    while(global_socket.state == SYN_RECEIVED) {
 
         printf("[MIC-TCP] Envoi de SYN+ACK... \n");
-        mic_tcp_pdu response = create_nopayload_pdu(1, 1, 0, 0, 0, global_socket.local_addr.port, remote_port);
-        result = IP_send(response, remote_ip_addr);
+        mic_tcp_pdu response = create_nopayload_pdu(1, 1, 0, 0, 0, global_socket.local_addr.port, global_socket.remote_addr.port);
+        result = IP_send(response, global_socket.remote_addr.ip_addr);
         if (result == -1) continue;
         printf("[MIC-TCP] Envoi de SYN+ACK... OK\n");
 
-        mic_tcp_pdu received_pdu2;
-        received_pdu2.payload.size = 0;
+        pthread_mutex_lock(&connection_lock);
+        time_t CURRENT_TIME;                                                                     
+        struct timespec timeout_timestamp;
+        time(&CURRENT_TIME);
+        timeout_timestamp.tv_sec = CURRENT_TIME + TIMEOUT/1000;
+        timeout_timestamp.tv_nsec = 0;
+        if (pthread_cond_timedwait(&connection_cond, &connection_lock, &timeout_timestamp) != 0) {
+            if (errno == EAGAIN) {
+                printf("[MIC-TCP] Timeout in ACK receiving, sending SYN+ACK again.");
+                continue;
+            } else {
+                printf("[MIC-TCP] Error in SYN+ACK condition wait.");
+                return -1;
+            }
+        }
 
-        printf("[MIC-TCP] Reception du ACK...\n");
-        result = IP_recv(&received_pdu2, &global_socket.local_addr.ip_addr, &remote_ip_addr, TIMEOUT);
-        if (result == -1) {
-            printf("[MIC-TCP] Failed to receive, continuing attempts...\n");
-            continue;
-        }
-        //if (verify_pdu(&received_pdu, 1, 0, 0, 0, 0)) continue; //Same condition below
-        if (verify_pdu(&received_pdu2, 0, 0, 0, 1, 0)) { // If received first data pdu before getting ACK
-            printf("[MIC-TCP] Received data while waiting for ACK... Assuming connection is established.\n");
-            break; 
-        }
-        if (!verify_pdu(&received_pdu2, 0, 1, 0, 0, 0)) {
-            printf("[MIC-TCP] Not ACK, continuing attempts...\n");
-            continue;
-        }
-        printf("[MIC-TCP] Reception du ACK... OK\n");
-
-        break; //To change
     }
 
-    if (attempt_done >= MAX_ATTEMPTS) return -1;
-
-    global_socket.remote_addr.ip_addr = remote_ip_addr;
-    global_socket.remote_addr.port = remote_port;
-    global_socket.state = ESTABLISHED ;
-    global_socket.current_seq_num = 1;
-
-
-    addr = &global_socket.remote_addr;
-
     return 0;
+
 }
 
 /*
@@ -145,8 +147,10 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
 
     int attempt_done = 0 ;
     int result ;
+    char synack_received = 0 ;
+    char syn_to_send = 1 ;
 
-    while (attempt_done++<MAX_ATTEMPTS) {
+    while (syn_to_send || !synack_received) {
         
         printf("[MIC-TCP] Envoi du SYN...\n");
         mic_tcp_pdu connect_req = create_nopayload_pdu(1, 0, 0, 0, 0, global_socket.local_addr.port, addr.port);
@@ -154,24 +158,32 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
         if (result == -1) continue;
         printf("[MIC-TCP] Envoi du SYN... OK\n");
 
+        syn_to_send = 0 ;
+        synack_received = 0 ; 
+
         global_socket.state = SYN_SENT ;
 
-        printf("[MIC-TCP] Reception du SYN+ACK...\n");
+        while (!synack_received) 
+        {
+            printf("[MIC-TCP] Reception du SYN+ACK...\n");
 
-        mic_tcp_pdu received_pdu;
-        received_pdu.payload.size = 0;
-        mic_tcp_ip_addr remote_addr;
-        result = IP_recv(&received_pdu, &global_socket.local_addr.ip_addr, &remote_addr, TIMEOUT);
-        if (result == -1) continue;;
-        if (!verify_pdu(&received_pdu, 1, 1, 0, 0, 0)) continue;
+            mic_tcp_pdu received_pdu;
+            received_pdu.payload.size = 0;
+            mic_tcp_ip_addr remote_addr;
+            result = IP_recv(&received_pdu, &global_socket.local_addr.ip_addr, &remote_addr, TIMEOUT);
+            if (result == -1) {
+                syn_to_send = 1 ;
+                break;
+            }
+            if (!verify_pdu(&received_pdu, 1, 1, 0, 0, 0)) {
+                continue;
+            }
 
-        printf("[MIC-TCP] Reception du SYN+ACK... OK\n");
+            printf("[MIC-TCP] Reception du SYN+ACK... OK\n");
 
-        break ; // To change
-
+            synack_received = 1 ;
+        }
     }
-
-    if (attempt_done >= MAX_ATTEMPTS) return -1;
 
     //Need to resend ACK if lost
     printf("[MIC-TCP] Envoi du ACK...\n");
@@ -185,6 +197,21 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
     global_socket.current_seq_num = 1;
 
     return 0;
+}
+
+int has_to_redo_connect() {
+    int result ;
+
+    printf("[MIC-TCP] Envoi du ACK...\n");
+    mic_tcp_pdu ack_response = create_nopayload_pdu(0, 1, 0, 0, 0, global_socket.local_addr.port, global_socket.remote_addr.port);
+    result = IP_send(ack_response, global_socket.remote_addr.ip_addr);
+    if (result == -1) return -1;
+    printf("[MIC-TCP] Envoi du ACK... OK\n");
+
+    global_socket.state = ESTABLISHED ;
+    global_socket.current_seq_num = 1;
+
+    return result ;
 }
 
 /*
@@ -209,8 +236,9 @@ int mic_tcp_send(int mic_sock, char* msg, int msg_size)
 
     int attempt_done = 0 ;
     int result ;
+    char msg_to_send = 1 ;
 
-    while (attempt_done++<MAX_ATTEMPTS) {
+    while (msg_to_send) {
         
         printf("[MIC-TCP] Sending packet with Sequence Number %d\n",global_socket.current_seq_num) ;
         result = IP_send(packet, global_socket.remote_addr.ip_addr);
@@ -219,16 +247,24 @@ int mic_tcp_send(int mic_sock, char* msg, int msg_size)
         printf("[MIC-TCP] Reception du ACK...\n");
         result = IP_recv(&received_pdu, &global_socket.local_addr.ip_addr, &remote_ip_addr, TIMEOUT);
         if (result == -1) continue;
+
+
+        if (verify_pdu(&received_pdu,1 ,1, 0, 0, 0)) {
+            printf("[MIC-TCP] Received SYN-ACK... of connexion ! Resend ACK \n") ;
+            result = has_to_redo_connect() ;
+            continue ;
+        }
     
-        if (!verify_pdu(&received_pdu, 0, 1, 0, global_socket.current_seq_num+1, 0)) {
-            printf("[MIC-TCP] Receiving ACK... OK [BAD ACK NUM %d /= %d, UPDATING]\n", global_socket.current_seq_num+1, received_pdu.header.ack_num);
+        else if (!verify_pdu(&received_pdu, 0, 1, 0, global_socket.current_seq_num+1, 0)) {
+            printf("[MIC-TCP] Receiving ACK... OK [BAD ACK NUM %d != %d, UPDATING]\n", global_socket.current_seq_num+1, received_pdu.header.ack_num);
             global_socket.current_seq_num = received_pdu.header.ack_num;
             continue;
         } else {
+            printf("[MIC-TCP] Receiving ACK... OK\n");
             global_socket.current_seq_num++;
+            msg_to_send = 0 ;
         }
 
-        printf("[MIC-TCP] Receiving ACK... OK\n");
         break;
     }
 
@@ -295,38 +331,69 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
 {
     printf("[MIC-TCP] Appel de la fonction: "); printf(__FUNCTION__); printf("\n");
 
-    if (global_socket.state != ESTABLISHED) return;
+    switch(global_socket.state) {
 
-    if (verify_pdu(&pdu, 0, 0, 0, 0, 0)) { // DATA
+        case ACCEPTING:
 
-        if (verify_pdu(&pdu, 0, 0, 0, global_socket.current_seq_num, 0)) {
-            global_socket.current_seq_num++;
-            app_buffer_put(pdu.payload);
-        }
+            if (verify_pdu(&pdu, 1, 0, 0, 0, 0)) {
+                printf("[MIC-TCP] Received SYN\n");
+                global_socket.state = SYN_RECEIVED;
+                global_socket.remote_addr.ip_addr = remote_addr;
+                global_socket.remote_addr.port = pdu.header.source_port;
+                pthread_cond_signal(&connection_cond);
+            }
 
-        mic_tcp_pdu acknowledgment = create_nopayload_pdu(0, 1, 0, 0, global_socket.current_seq_num, pdu.header.dest_port, pdu.header.source_port);
-        int result = IP_send(acknowledgment, global_socket.remote_addr.ip_addr);
-        if (result == -1) printf("[MIC-TCP] Could not send acknowledgement for packet %d\n", global_socket.current_seq_num);
+            break;
 
-    }
+        case SYN_RECEIVED: 
 
-    if (verify_pdu(&pdu, 0, 0, 1, 0, 0)) { // CLOSING PDU
+            if (verify_pdu(&pdu, 0, 1, 0, 0, 0)) {
+                printf("[MIC-TCP] Received ACK... Connection established\n");
+                global_socket.state = ESTABLISHED;
+                global_socket.current_seq_num = 1;
+                pthread_cond_signal(&connection_cond);
+            }
 
-        global_socket.state = CLOSING ;
+            break;
 
-        mic_tcp_pdu fin_ack = create_nopayload_pdu(0, 1, 1, 0, 0, pdu.header.dest_port, pdu.header.source_port);
-        int result = IP_send(fin_ack, remote_addr);
-        if (result == -1) return;
+        case ESTABLISHED:
 
-        mic_tcp_pdu* received_pdu = NULL;
-        result = IP_recv(received_pdu, &local_addr, NULL, 1000);
-        if (result == -1) return;
-        if (!verify_pdu(received_pdu, 0, 1, 0, 0, 0)) return;
+            if (verify_pdu(&pdu, 0, 0, 0, 0, 0)) { // DATA
 
-        global_socket.state = CLOSED ;
+                // If data PDU received is the one we're waiting for
+                printf("[MIC-TCP] Reception DATA PDU : Expected Seq_num %d \n", global_socket.current_seq_num);
+                if (verify_pdu(&pdu, 0, 0, 0, global_socket.current_seq_num, 0)) {
+                    global_socket.current_seq_num++;
+                    app_buffer_put(pdu.payload);
 
-        // connection ended
-        // detruire socket
+                    printf("[MIC-TCP] Reception DATA PDU OK : New Seq_num %d \n", global_socket.current_seq_num);
+
+                }
+
+                printf("[MIC-TCP] Envoi du ACK... Current Ack_num %d \n",global_socket.current_seq_num);
+                mic_tcp_pdu acknowledgment = create_nopayload_pdu(0, 1, 0, 0, global_socket.current_seq_num, pdu.header.dest_port, pdu.header.source_port);
+                int result = IP_send(acknowledgment, global_socket.remote_addr.ip_addr);
+                if (result == -1) printf("[MIC-TCP] Could not send acknowledgement for packet %d\n", global_socket.current_seq_num);
+                printf("[MIC-TCP] Envoi du ACK... OK\n");
+
+            } else if (verify_pdu(&pdu, 0, 0, 1, 0, 0)) {
+
+                global_socket.state = CLOSING;
+
+                mic_tcp_pdu fin_ack = create_nopayload_pdu(0, 1, 1, 0, 0, pdu.header.dest_port, pdu.header.source_port);
+                int result = IP_send(fin_ack, remote_addr);
+                if (result == -1) return;
+
+            }
+
+            break;
+
+        case CLOSING:
+
+            if (!verify_pdu(&pdu, 0, 1, 0, 0, 0)) return;
+            global_socket.state = CLOSED;
+
+            break;
 
     }
 
