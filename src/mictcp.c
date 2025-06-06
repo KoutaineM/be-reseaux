@@ -5,7 +5,7 @@
 
 #define MAX_ATTEMPTS 10
 #define TIMEOUT 1000
-#define LOSS_RATE 0
+#define LOSS_RATE 40
 #define MAX_SOCKETS 20
 
 mic_tcp_sock global_socket;
@@ -100,6 +100,8 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr)
         return -1;
     }
 
+    pthread_mutex_unlock(&connection_lock);
+
     while(global_socket.state == SYN_RECEIVED) {
 
         printf("[MIC-TCP] Envoi de SYN+ACK... \n");
@@ -107,6 +109,7 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr)
         result = IP_send(response, global_socket.remote_addr.ip_addr);
         if (result == -1) continue;
         printf("[MIC-TCP] Envoi de SYN+ACK... OK\n");
+
 
         pthread_mutex_lock(&connection_lock);
         time_t CURRENT_TIME;                                                                     
@@ -125,6 +128,8 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr* addr)
         }
 
     }
+
+    printf("[MIC-TCP] Accepted connection, now receiving...\n");
 
     return 0;
 
@@ -276,7 +281,9 @@ int mic_tcp_recv (int socket, char* msg, int max_msg_size)
     mic_tcp_payload payload_to_receive;
     payload_to_receive.data = msg;
     payload_to_receive.size = max_msg_size;
-    return app_buffer_get(payload_to_receive);
+    int result = app_buffer_get(payload_to_receive);
+    printf("APP_BUFFER_GET WITH SIZE: %d\n", payload_to_receive.size);
+    return result;
 
 }
 
@@ -352,6 +359,7 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
                 printf("[MIC-TCP] Reception DATA PDU : Expected Seq_num %d \n", global_socket.current_seq_num);
                 if (verify_pdu(&pdu, 0, 0, 0, global_socket.current_seq_num, 0)) {
                     global_socket.current_seq_num++;
+                    printf("APP_BUFFER_PUT WITH SIZE: %d\n", pdu.payload.size);
                     app_buffer_put(pdu.payload);
 
                     printf("[MIC-TCP] Reception DATA PDU OK : New Seq_num %d \n", global_socket.current_seq_num);
