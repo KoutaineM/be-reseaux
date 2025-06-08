@@ -110,10 +110,10 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr *addr)
         return -1;
     }
 
-    pthread_mutex_unlock(&connection_lock);
-
     while (global_socket.state == SYN_RECEIVED)
     {
+
+        pthread_mutex_unlock(&connection_lock);
 
         printf("[MIC-TCP] Envoi de SYN+ACK... \n");
         mic_tcp_pdu response = create_nopayload_pdu(1, 1, 0, 0, 0, global_socket.local_addr.port, global_socket.remote_addr.port);
@@ -262,9 +262,13 @@ int mic_tcp_send(int mic_sock, char *msg, int msg_size)
 
         printf("[MIC-TCP] Reception du ACK...\n");
         result = IP_recv(&received_pdu, &global_socket.local_addr.ip_addr, &remote_ip_addr, TIMEOUT);
-        if (result == -1)
+        if (result == -1) {
+            // If couldn't receive DATA ACK, and first sequence number, maybe our connection ACK did not go through...
+            if (global_socket.current_seq_num == 1) send_connection_acknowledgement();
             continue;
+        }
 
+        // If our ACK did not go through, so the server re-sent us a SYN+ACK
         if (verify_pdu(&received_pdu, 1, 1, 0, 0, 0))
         {
             printf("\e[0;92m[MIC-TCP] Received SYN+ACK... of connexion ! Resend ACK \n\e[0m");
