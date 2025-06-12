@@ -5,13 +5,31 @@
 #include <errno.h>
 
 #define MAX_ATTEMPTS 10
-#define TIMEOUT 2
+#define TIMEOUT 30
 #define LOSS_RATE 3
 #define MAX_SOCKETS 20
-#define SLIDING_WINDOW_SIZE 30
-#define SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS 5
 
 int sliding_window = 0b00000;
+int sliding_window_consecutive_loss = 0;
+int sliding_window_size = 0;
+
+#define SLIDING_WINDOW_SIZE sliding_window_size
+#define SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS sliding_window_consecutive_loss
+
+#define MESURING_RELIABILITY_PACKET_NUMBER 100
+#define MESURING_PAYLOAD "mesure"
+
+/*
++--------------------------+-------------------------------+-----------------------------+
+| Taux de pertes mesuré    | Pertes acceptées dans fenêtre | Commentaire                 |
++--------------------------+-------------------------------+-----------------------------+
+| x < 2%                   | 0 sur 10                      | Fiabilité maximale          |
+| 2% <= x < 5%             | 1 sur 10                      | Faibles pertes              |
+| 5% <= x < 12%            | 2 sur 10                      | Pertes modérées             |
+| 12% <= x <= 20%          | 3 sur 10                      | Canal de qualité faible     |
+| x > 20%                  | Refus                         | Canal trop dégradé          |
++--------------------------+-------------------------------+-----------------------------+
+*/
 
 void update_sliding_window(char received) {
     sliding_window <<= 1; // Slide the window
@@ -253,6 +271,52 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
     if (send_connection_acknowledgement() != 0)
         return -1;
 
+    global_socket.state = MEASURING_RELIABILITY;
+
+    int received_packets = 0;
+
+    // Mesuring
+    for(int i = 0; i < MESURING_RELIABILITY_PACKET_NUMBER; i++) {
+
+        // For each packet, we send it...
+        mic_tcp_pdu packet = create_nopayload_pdu(0, 0, 0, 0, 0, global_socket.local_addr.port, global_socket.remote_addr.port);
+        packet.payload.data = MESURING_PAYLOAD;
+        packet.payload.size = strlen(packet.payload.data);
+        result = IP_send(packet, global_socket.remote_addr.ip_addr);
+        if (result != -1) {
+            printf("[MIC-TCP] Error sending RELIABILITY packet, continuing...\n");
+            continue;
+        }
+        // And wait for its ACK...
+        mic_tcp_pdu received_pdu;
+        received_pdu.payload.size = 0;
+        mic_tcp_ip_addr remote_addr;
+        result = IP_recv(&received_pdu, &global_socket.local_addr.ip_addr, &remote_addr, TIMEOUT / 2);
+
+        if (verify_pdu(&received_pdu, 0, 1, 0, 0, 0)) {
+            received_packets++;
+        }
+
+    }
+
+    float rate = 100 * received_packets / MESURING_RELIABILITY_PACKET_NUMBER;
+
+    // Negotiating
+    SLIDING_WINDOW_SIZE = 10;
+    if (rate < 2.0) {
+        SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS = 0;
+    } else if (rate >= 2.0 && rate < 5.0) {
+        SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS = 1;
+    } else if (rate >= 5.0 && rate < 12.0) {
+        SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS = 2;
+    } else if (rate >= 12.0 && rate <= 20.0) {
+        SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS = 3;
+    } else {
+        return mic_tcp_close(socket);
+    }
+
+    global_socket.state = ESTABLISHED;
+
     return 0;
 }
 
@@ -432,6 +496,8 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_i
 
         if (verify_pdu(&pdu, 0, 0, 0, 0, 0))
         { // DATA
+
+            // Compare PDU mesuring and send ACK
 
             // If data PDU received is the one we're waiting for
             printf("[MIC-TCP] Reception DATA PDU : Expected Seq_num %d \n", global_socket.current_seq_num);
