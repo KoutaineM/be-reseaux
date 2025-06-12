@@ -5,8 +5,28 @@
 
 #define MAX_ATTEMPTS 10
 #define TIMEOUT 2000
-#define LOSS_RATE 40
+#define LOSS_RATE 0
 #define MAX_SOCKETS 20
+#define SLIDING_WINDOW_SIZE 5
+#define SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS 1
+
+int sliding_window = 0;
+
+void update_sliding_window(char increment) {
+    if (increment) {
+        sliding_window += 1;
+    } else {
+        sliding_window -= 1;
+    }
+    if (sliding_window > SLIDING_WINDOW_SIZE) sliding_window = SLIDING_WINDOW_SIZE;
+    if (sliding_window < 0) sliding_window = 0;
+    printf("[MIC-TCP] Sliding window is now at: %d\n", sliding_window);
+}
+
+char verify_acceptable_loss() {
+    if (sliding_window > (SLIDING_WINDOW_SIZE - SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS)) return 1;
+    return 0;
+}
 
 mic_tcp_sock global_socket;
 pthread_mutex_t connection_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -219,9 +239,9 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
         }
     }
 
+    global_socket.remote_addr = addr;
     if (send_connection_acknowledgement() != 0)
         return -1;
-    global_socket.remote_addr = addr;
 
     return 0;
 }
@@ -263,8 +283,15 @@ int mic_tcp_send(int mic_sock, char *msg, int msg_size)
         printf("[MIC-TCP] Reception du ACK...\n");
         result = IP_recv(&received_pdu, &global_socket.local_addr.ip_addr, &remote_ip_addr, TIMEOUT);
         if (result == -1) {
+
             // If couldn't receive DATA ACK, and first sequence number, maybe our connection ACK did not go through...
             if (global_socket.current_seq_num == 1) send_connection_acknowledgement();
+            if (verify_acceptable_loss()) {
+                printf("[MIC-TCP] Loss is acceptable, moving on...\n");
+                update_sliding_window(0); // decrement
+                return 0;
+            }
+            
             continue;
         }
 
@@ -287,6 +314,7 @@ int mic_tcp_send(int mic_sock, char *msg, int msg_size)
             printf("[MIC-TCP] Receiving ACK... OK\n");
             global_socket.current_seq_num++;
             msg_to_send = 0;
+            update_sliding_window(1);
         }
     }
 
