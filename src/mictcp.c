@@ -1,31 +1,41 @@
 #include <mictcp.h>
 #include <api/mictcp_core.h>
+#include <stdio.h>
 #include <time.h>
 #include <errno.h>
 
 #define MAX_ATTEMPTS 10
-#define TIMEOUT 2000
-#define LOSS_RATE 0
+#define TIMEOUT 2
+#define LOSS_RATE 3
 #define MAX_SOCKETS 20
-#define SLIDING_WINDOW_SIZE 5
-#define SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS 1
+#define SLIDING_WINDOW_SIZE 30
+#define SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS 5
 
-int sliding_window = 0;
+int sliding_window = 0b00000;
 
-void update_sliding_window(char increment) {
-    if (increment) {
-        sliding_window += 1;
-    } else {
-        sliding_window -= 1;
+void update_sliding_window(char received) {
+    sliding_window <<= 1; // Slide the window
+    if (received) {
+        sliding_window += 1; // Add a 1 to the right-most bit
     }
-    if (sliding_window > SLIDING_WINDOW_SIZE) sliding_window = SLIDING_WINDOW_SIZE;
-    if (sliding_window < 0) sliding_window = 0;
-    printf("[MIC-TCP] Sliding window is now at: %d\n", sliding_window);
+    sliding_window &= (1 << SLIDING_WINDOW_SIZE) - 1; // Mask the sliding window to match the size
+
+    printf("[MIC-TCP] Sliding window is now at: ");
+    for(int i = 0; i < SLIDING_WINDOW_SIZE; i++) {
+        if ((sliding_window >> i) & 1) printf("\e[42mO");
+        else printf("\e[41mX");
+    }
+    printf("\e[0m\n");
 }
 
 char verify_acceptable_loss() {
-    if (sliding_window > (SLIDING_WINDOW_SIZE - SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS)) return 1;
-    return 0;
+    unsigned int count = 0;
+    int window = sliding_window;
+    while (window) {
+        count += window & 1;
+        window >>= 1;
+    }
+    return count > (SLIDING_WINDOW_SIZE - SLIDING_WINDOW_CONSECUTIVE_ACCEPTABLE_LOSS);
 }
 
 mic_tcp_sock global_socket;
