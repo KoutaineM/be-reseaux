@@ -1,89 +1,114 @@
-# BE RESEAU
-## TPs BE Reseau - 3 MIC
+# MIC-TCP — Bureau d'Étude Réseaux
 
-Les détails du sujet du BE est accessible depuis le cours "Programmation Système et Réseau" sur moodle.
+Auteurs : Melwan KOUTAINE, Aouab ADMOU
 
+## 1. Commandes de Compilation
 
-## Contenu du dépôt « template » fourni
-Ce dépôt inclut le code source initial fourni pour démarrer le BE. Plus précisément : 
-  - README.md (ce fichier) qui notamment décrit la préparation de l’environnement de travail et le suivi des versions de votre travail; 
-  - tsock_texte et tsock_video : lanceurs pour les applications de test fournies. 
-  - dossier include : contenant les définitions des éléments fournis que vous aurez à manipuler dans le cadre du BE.
-  - dossier src : contenant l'implantation des éléments fournis et à compléter dans le cadre du BE.
-  - src/mictcp.c : fichier au sein duquel vous serez amenés à faire l'ensemble de vos contributions (hors bonus éventuels). 
+Placez-vous à la racine du dépôt, puis lancez :
 
+```bash
+make
+````
 
-## Création du dépôt mictcp 
+Les exécutables seront générés dans le dossier `build/`.
 
-1. Création d’un compte git étudiant : Si vous ne disposez pas d’un compte git, connectez vous sur http://github.com/ et créez un compte par binôme. 
+---
 
-2. Afin d’être capable de mettre à jour le code que vous aurez produit sur le dépôt central Github, il vous faudra créer un jeton d’accès qui jouera le rôle de mot de passe. Veuillez le sauvegarder, car il vous le sera demandé lors de l'accès au dépôt central. Pour ce faire, veuillez suivre les étapes décrites : https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token
+## 2. Lancement des Applications de Test
 
-3. Création d’un dépôt Etudiant sur GitHub pour le BE Reseau
-  
-   Créer une copie du dépôt template enseignant : https://github.com/rezo-insat/mictcp, en vous y rendant et en cliquant sur le bouton « use this template » situé dans le coin en haut, plutôt à droite de la page. Il est demandé de le choisir comme dépôt privé. Il est impératif pour les corrections que vous rajoutiez le compte : rezo-insat comme collaborateur afin de permettre à vos enseignants d'accéder à votre dépôt. Pour ce faire, sélectionner le bouton "settings" puis "collaborators" et rajouter comme utilisateur : rezo-insat. La marche à suivre est décrite ci-après : https://docs.github.com/en/organizations/managing-access-to-your-organizations-repositories/adding-outside-collaborators-to-repositories-in-your-organization
+### Mode Texte
 
+* **Puits :**
 
-4. Créer un clone local de votre dépôt Github, i.e. une copie locale du dépôt sur votre compte insa. 
-  
-    cliquer sur le bouton « code » de votre dépôt, copier l’URL qui permet de l’identifier. 
-	Ouvrir un terminal de votre machine. En vous plaçant dans le répertoire de travail de votre choix, taper depuis le terminal :
+```bash
+./tsock_texte -p <port>
+```
 
-        git clone <url de votre dépôt>
+* **Source :**
 
-    Vous avez désormais une copie locale de votre dépôt, que vous pouvez mettre à jour et modifier à volonté au gré de votre avancement sur les TPs. 
+```bash
+./tsock_texte -s <adresse_dest> <port>
+```
 
-5. Afin de nous permettre d’avoir accès à votre dépôt, merci de bien vouloir renseigner l'URL de votre dépôt sur le fichier accessible depuis le lien "fichier URLs dépôts étudiants" se trouvant sur moodle (au niveau de la section: BE Reseau).
+### Mode Vidéo
 
-## Compilation du protocole mictcp et lancement des applications de test fournies
+* **Puits :**
 
-Pour compiler mictcp et générer les exécutables des applications de test depuis le code source fourni, taper :
+```bash
+./tsock_video -p -t mictcp
+```
 
-    make
+* **Source :**
 
-Deux applicatoins de test sont fournies, tsock_texte et tsock_video, elles peuvent être lancées soit en mode puits, soit en mode source selon la syntaxe suivante:
+```bash
+./tsock_video -s -t mictcp
+```
 
-    Usage: ./tsock_texte [-p|-s destination] port
-    Usage: ./tsock_video [[-p|-s] [-t (tcp|mictcp)]
+---
 
-Seul tsock_video permet d'utiliser, au choix, votre protocole mictcp ou une émulation du comportement de tcp sur un réseau avec pertes.
+## 3. Fonctionnalités Implémentées
 
-## Suivi de versions de votre travail
+### ✅ Fonctionnalités Fonctionnelles
 
-Vous pouvez travailler comme vous le souhaitez sur le contenu du répertoire local. Vous pouvez mettre à jour les fichiers existants, rajouter d’autres ainsi que des dossiers et en retirer certains à votre guise. 
+* **Connexion (3-way handshake)** : Établissement fiable de la connexion client/serveur.
+* **Transmission de données** : Envoi et réception de messages texte et vidéo.
+* **Fermeture de connexion** : Gestion correcte des étapes FIN, FIN+ACK, ACK final.
+* **Fiabilité partielle** :
 
-Pour répercuter les changements que vous faites sur votre répertoire de travail local sur le dépôt central GitHub, sur votre terminal, taper :
- 
-    git add .
-    git commit -m «un message décrivant la mise à jour»
-    git push
+  * Mesure du taux de perte à la connexion.
+  * Fenêtre glissante paramétrable.
+  * Acceptation conditionnelle de pertes selon la politique définie.
+* **Synchronisation application/transport (réception)** :
 
-- Marquage des versions successives de votre travail sur mictcp 
- 
-Lorsque vous le souhaitez, git permet d'associer une étiquette à un état précis de votre dépôt par l'intermédiaires de tags. Il vous est par exemple possible d'utiliser ce mécanisme pour marquer (et par conséquence pouvoir retrouver) l'état de votre dépôt pour chacune des versions successives de votre travail sur mictcp.
+  * Mutex et variables de condition assurent la cohérence entre réception réseau et application.
 
-Pour Créer un tag « v1 » et l'associer à l'état courrant de votre dépôt, vous taperez la commande suivante sur votre terminal :
+### ⚠️ Limites et Points Non Fonctionnels
 
-    git tag v1
+* La gestion de plusieurs connexions simultanées n’a pas été testée.
+* L’allocation mémoire pour certaines structures (ex. adresses IP) peut être optimisée.
+* Les tests n’ont pas couvert tous les cas de pertes extrêmes (> 20%).
 
-Pour lister les tags existants au sein de votre dépôt
+---
 
-    git tag -l
+## 4. Choix d’Implémentation Remarquables
 
-Pour transférer les tags de votre dépôt local vers le dépôt central sur github:
+### Fiabilité Partielle
 
-    git push origin --tags
+* **Mesure initiale** :
 
+  * À l’établissement de la connexion, le client envoie 100 paquets pour estimer le taux de perte.
+* **Fenêtre glissante** :
 
-Ceci permettra à votre enseignant de positionner le dépôt dans l'état ou il était au moment du marquage avec chacun des tags que vous définissez. 
-   
-## Suivi de votre avancement 
+  * Taille : 10.
+  * Seuils de pertes acceptées :
 
-Veuillez utiliser, à minima, un tag pour chacune des versions successives de mictcp qui sont définies au sein du sujet du BE disponible sous moodle.
+    * `< 2%` : 0 perte
+    * `2–5%` : 1 perte
+    * `5–12%` : 2 pertes
+    * `12–20%` : 3 pertes
+    * `> 20%` : connexion refusée
+* **Décision de retransmission** :
 
+  * Si un ACK n’est pas reçu :
 
-## Liens utiles 
+    * Si le nombre de pertes dans la fenêtre reste acceptable → pas de retransmission.
+    * Sinon → retransmission jusqu’à obtention d’un ACK ou dépassement du seuil.
 
-Aide pour la création d’un dépôt depuis un template : https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template
+### Synchronisation Application/Transport (Réception)
 
-Manuel d'utilisation de git: https://git-scm.com/docs
+* **Buffer applicatif** :
+
+  * File protégée par mutex.
+  * Si vide, le thread application attend via une variable de condition.
+* **Traitement asynchrone** :
+
+  * Un thread dédié traite les PDUs reçus et les place dans le buffer.
+  * Évite de bloquer la réception réseau si l’application est lente.
+
+---
+
+## 5. Historique des Versions
+
+* **v1** : Connexion et transmission de base (sans fiabilité partielle).
+* **v2** : Ajout de la mesure de fiabilité et de la fenêtre glissante.
+* **v3** : Fermeture complète de la connexion + synchronisation application/transport.
