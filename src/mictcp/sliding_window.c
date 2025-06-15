@@ -30,7 +30,7 @@ void update_sliding_window(mic_tcp_sock *sock, char received) {
     sock->sliding_window &= (1 << sock->sliding_window_size) - 1;
 
     // Display sliding window status with colored indicators
-    printf(LOG_PREFIX_MAIN_THREAD ANSI_COLOR_CYAN "Sliding window status: " ANSI_COLOR_RESET);
+    printf(LOG_PREFIX ANSI_COLOR_CYAN "Sliding window status: " ANSI_COLOR_RESET);
     for (int i = 0; i < sock->sliding_window_size; i++) {
         printf("%s%s" ANSI_COLOR_RESET, 
                (sock->sliding_window >> i) & 1 ? ANSI_COLOR_GREEN : ANSI_COLOR_RED,
@@ -56,7 +56,7 @@ char verify_acceptable_loss(mic_tcp_sock *sock) {
     
     // Verify if loss rate is acceptable
     char result = count > (sock->sliding_window_size - sock->sliding_window_consecutive_loss);
-    printf(LOG_PREFIX_MAIN_THREAD "%sLoss verification: %s (successes: %u, minimum: %d)" ANSI_COLOR_RESET "\n",
+    printf(LOG_PREFIX "%sLoss verification: %s (successes: %u, minimum: %d)" ANSI_COLOR_RESET "\n",
            result ? ANSI_COLOR_GREEN : ANSI_COLOR_RED,
            result ? "ACCEPTABLE" : "UNACCEPTABLE",
            count, sock->sliding_window_size - sock->sliding_window_consecutive_loss);

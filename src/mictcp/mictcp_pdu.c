@@ -36,7 +36,7 @@ mic_tcp_pdu create_nopayload_pdu(char syn, char ack, char fin, int seq_num, int 
     pdu.header = pdu_header;
     pdu.payload = pdu_payload;
     
-    printf(LOG_PREFIX_MAIN_THREAD ANSI_COLOR_GREEN "PDU created: SYN=%d ACK=%d FIN=%d SEQ=%d ACK_NUM=%d" 
+    printf(LOG_PREFIX ANSI_COLOR_GREEN "PDU created: SYN=%d ACK=%d FIN=%d SEQ=%d ACK_NUM=%d" 
            ANSI_COLOR_RESET "\n", syn, ack, fin, seq_num, ack_num);
     
     return pdu;
