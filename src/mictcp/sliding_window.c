@@ -2,6 +2,20 @@
 #include "mictcp/mictcp_config.h"
 #include <stdio.h>
 
+/*
+
+╔══════════════════════════╦═══════════════════════════════╦═════════════════════════════╗
+║ Measured Loss Rate       ║ Accepted Losses in Window     ║ Comment                     ║
+╚══════════════════════════╩═══════════════════════════════╩═════════════════════════════╝
+║ x < 2%                   ║ 0 out of 10                   ║ Maximum reliability         ║
+║ 2% <= x < 5%             ║ 1 out of 10                   ║ Low losses                  ║
+║ 5% <= x < 12%            ║ 2 out of 10                   ║ Moderate losses             ║
+║ 12% <= x <= 20%          ║ 3 out of 10                   ║ High losses                 ║
+║ x > 20%                  ║ Refuse connection             ║ Channel too unreliable      ║
+╚══════════════════════════╩═══════════════════════════════╩═════════════════════════════╝
+
+*/
+
 /**
  * @brief Updates the sliding window with packet reception status and displays it
  * @param sock MIC-TCP socket containing sliding window fields

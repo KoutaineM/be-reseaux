@@ -49,8 +49,9 @@ int allocate_new_socket(int sys_socket) {
     sockets[fd].sock.sys_socket = sys_socket;
     sockets[fd].sock.state = CLOSED;
     sockets[fd].sock.current_seq_num = 0;
-    pthread_mutex_init(&sockets[fd].sock.connection_lock, NULL);
-    pthread_cond_init(&sockets[fd].sock.connection_cond, NULL);
+    sockets[fd].sock.received_packets = 0;
+    pthread_mutex_init(&sockets[fd].sock.lock, NULL);
+    pthread_cond_init(&sockets[fd].sock.cond, NULL);
 
     return fd;
 

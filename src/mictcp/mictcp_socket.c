@@ -62,7 +62,7 @@ int mic_tcp_bind(int socket, mic_tcp_sock_addr addr) {
     }
     
     sock->local_addr = addr;
-    sock->state = IDLE;
+    socket_set_state(sock, IDLE);
     
     printf(LOG_PREFIX ANSI_COLOR_GREEN "Socket bound successfully to port %d" 
            ANSI_COLOR_RESET "\n", addr.port);
@@ -84,17 +84,17 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr *addr) {
         return -1;
     }
     
-    pthread_mutex_lock(&sock->connection_lock);
-    sock->state = ACCEPTING;
+    socket_set_state(sock, ACCEPTING);
     
-    if (pthread_cond_wait(&sock->connection_cond, &sock->connection_lock) != 0) {
+    pthread_mutex_lock(&sock->lock);
+    if (pthread_cond_wait(&sock->cond, &sock->lock) != 0) {
         printf(LOG_PREFIX ANSI_COLOR_RED "Error waiting for SYN" ANSI_COLOR_RESET "\n");
-        pthread_mutex_unlock(&sock->connection_lock);
+        pthread_mutex_unlock(&sock->lock);
         return -1;
     }
     
     while (sock->state == SYN_RECEIVED) {
-        pthread_mutex_unlock(&sock->connection_lock);
+        pthread_mutex_unlock(&sock->lock);
         
         printf(LOG_PREFIX ANSI_COLOR_YELLOW "Sending SYN+ACK..." ANSI_COLOR_RESET "\n");
         mic_tcp_pdu response = create_nopayload_pdu(1, 1, 0, 0, 0, 
@@ -103,19 +103,18 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr *addr) {
         int result = IP_send(sock->sys_socket, response, sock->remote_addr.ip_addr);
         if (result == -1) {
             printf(LOG_PREFIX ANSI_COLOR_RED "Failed to send SYN+ACK" ANSI_COLOR_RESET "\n");
-            pthread_mutex_lock(&sock->connection_lock);
+            pthread_mutex_lock(&sock->lock);
             continue;
         }
         printf(LOG_PREFIX ANSI_COLOR_GREEN "SYN+ACK sent successfully" ANSI_COLOR_RESET "\n");
         
-        pthread_mutex_lock(&sock->connection_lock);
-        time_t current_time;
-        struct timespec timeout_timestamp;
-        time(&current_time);
-        timeout_timestamp.tv_sec = current_time + TIMEOUT / 1000;
-        timeout_timestamp.tv_nsec = 0;
+        pthread_mutex_lock(&sock->lock);
+        struct timespec timeout;
+        clock_gettime(CLOCK_REALTIME, &timeout);
+        timeout.tv_sec += TIMEOUT / 1000;
+        timeout.tv_nsec += (TIMEOUT % 1000) * 1e6;
         
-        result = pthread_cond_timedwait(&sock->connection_cond, &sock->connection_lock, &timeout_timestamp);
+        result = pthread_cond_timedwait(&sock->cond, &sock->lock, &timeout);
         if (result != 0) {
             if (result == ETIMEDOUT) {
                 printf(LOG_PREFIX ANSI_COLOR_YELLOW "Timeout waiting for ACK, retrying SYN+ACK..." 
@@ -123,12 +122,12 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr *addr) {
                 continue;
             }
             printf(LOG_PREFIX ANSI_COLOR_RED "Error waiting for ACK: %d" ANSI_COLOR_RESET "\n", result);
-            pthread_mutex_unlock(&sock->connection_lock);
+            pthread_mutex_unlock(&sock->lock);
             return -1;
         }
     }
     
-    pthread_mutex_unlock(&sock->connection_lock);
+    pthread_mutex_unlock(&sock->lock);
     printf(LOG_PREFIX ANSI_COLOR_GREEN "Connection accepted successfully" ANSI_COLOR_RESET "\n");
     return 0;
 }
@@ -150,7 +149,7 @@ int send_connection_acknowledgement(mic_tcp_sock *sock) {
         return -1;
     }
     
-    sock->state = ESTABLISHED;
+    socket_set_state(sock, ESTABLISHED);
     sock->current_seq_num = 1;
     printf(LOG_PREFIX ANSI_COLOR_GREEN "ACK sent successfully, connection established" 
            ANSI_COLOR_RESET "\n");
@@ -189,7 +188,7 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) {
         printf(LOG_PREFIX ANSI_COLOR_GREEN "SYN sent successfully" ANSI_COLOR_RESET "\n");
         
         syn_to_send = 0;
-        sock->state = SYN_SENT;
+        socket_set_state(sock, SYN_SENT);
         
         while (!synack_received) {
             printf(LOG_PREFIX ANSI_COLOR_YELLOW "Waiting for SYN+ACK..." ANSI_COLOR_RESET "\n");
@@ -220,9 +219,13 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) {
         printf(LOG_PREFIX ANSI_COLOR_RED "Connection establishment failed" ANSI_COLOR_RESET "\n");
         return -1;
     }
+
+    if (pthread_create(&sock->listen_thread, NULL, (void *(*)(void *))listening_client, (void *)(intptr_t)sock->sys_socket) != 0) {
+        printf(LOG_PREFIX ANSI_COLOR_RED "Failed to create listening thread" ANSI_COLOR_RESET "\n");
+        return -1;
+    }
     
-    sock->state = MEASURING_RELIABILITY;
-    int received_packets = 0;
+    socket_set_state(sock, MEASURING_RELIABILITY);
     
     for (int i = 0; i < MESURING_RELIABILITY_PACKET_NUMBER; i++) {
         mic_tcp_pdu packet = create_nopayload_pdu(0, 0, 0, 0, 0, 
@@ -239,26 +242,22 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) {
                    ANSI_COLOR_RESET "\n", i + 1);
             continue;
         }
-        
-        mic_tcp_pdu received_pdu;
-        received_pdu.payload.size = 0;
-        mic_tcp_ip_addr remote_addr;
-        
-        result = IP_recv(sock->sys_socket, &received_pdu, &sock->local_addr.ip_addr, &remote_addr, TIMEOUT / 2);
-        if (verify_pdu(&received_pdu, 0, 1, 0, 0, 0)) {
-            received_packets++;
-            printf(LOG_PREFIX ANSI_COLOR_GREEN "ACK received for reliability packet %d" 
-                   ANSI_COLOR_RESET "\n", i + 1);
-        } else {
-            printf(LOG_PREFIX ANSI_COLOR_YELLOW "No ACK for reliability packet %d" 
-                   ANSI_COLOR_RESET "\n", i + 1);
-        }
     }
+
+    pthread_mutex_lock(&sock->lock);
+    struct timespec timeout;
+    clock_gettime(CLOCK_REALTIME, &timeout);
+    timeout.tv_sec += 5 * TIMEOUT / 1000;
     
-    float success_rate = 100.0 * received_packets / MESURING_RELIABILITY_PACKET_NUMBER;
+    result = pthread_cond_timedwait(&sock->cond, &sock->lock, &timeout); // Wait for the last ACKs to arrive
+    pthread_mutex_unlock(&sock->lock);
+    
+    pthread_mutex_lock(&sock->lock); // Retreive loss rate
+    float success_rate = 100.0 * sock->received_packets / MESURING_RELIABILITY_PACKET_NUMBER;
+    pthread_mutex_unlock(&sock->lock);
     float loss_rate = 100.0 - success_rate;
     printf(LOG_PREFIX ANSI_COLOR_CYAN "Channel reliability: %.1f%% (%d packets received out of %d)" 
-           ANSI_COLOR_RESET "\n", success_rate, received_packets, MESURING_RELIABILITY_PACKET_NUMBER);
+           ANSI_COLOR_RESET "\n", success_rate, sock->received_packets, MESURING_RELIABILITY_PACKET_NUMBER);
     
     sock->sliding_window_size = 10;
     if (loss_rate < 2.0) {
@@ -270,15 +269,24 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) {
     } else if (loss_rate >= 12.0 && loss_rate <= 20.0) {
         sock->sliding_window_consecutive_loss = 3;
     } else {
-        printf(LOG_PREFIX ANSI_COLOR_RED "Channel too unreliable (%.1f%%), closing connection..." 
+        printf(LOG_PREFIX ANSI_COLOR_RED "Channel too unreliable (%.1f%% loss), closing connection..." 
                ANSI_COLOR_RESET "\n", loss_rate);
-        return mic_tcp_close(socket);
+        mic_tcp_close(socket);
+        printf(LOG_PREFIX ANSI_COLOR_RED "Channel too unreliable (%.1f%% loss), connection closed." 
+               ANSI_COLOR_RESET "\n", loss_rate);
+        return -1;
     }
     
     printf(LOG_PREFIX ANSI_COLOR_GREEN "Connection established with %d%% acceptable loss rate" 
            ANSI_COLOR_RESET "\n", 
            (sock->sliding_window_size - sock->sliding_window_consecutive_loss) * 100 / sock->sliding_window_size);
-    sock->state = ESTABLISHED;
-    
+    socket_set_state(sock, ESTABLISHED);
+
     return 0;
+}
+
+void socket_set_state(mic_tcp_sock* socket, protocol_state state) {
+    pthread_mutex_lock(&socket->lock);
+    socket->state = state;
+    pthread_mutex_unlock(&socket->lock);
 }

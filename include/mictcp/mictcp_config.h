@@ -3,7 +3,7 @@
 
 #define MAX_ATTEMPTS 10              // Maximum connection attempts
 #define TIMEOUT 60                   // Timeout in milliseconds
-#define LOSS_RATE 80                  // Packet loss rate percentage
+#define LOSS_RATE 20                  // Packet loss rate percentage
 #define MAX_SOCKETS 20               // Maximum number of sockets
 #define MESURING_RELIABILITY_PACKET_NUMBER 100 // Number of packets for reliability measurement
 #define MESURING_PAYLOAD "mesure"    // Payload for reliability measurement

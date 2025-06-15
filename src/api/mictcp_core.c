@@ -300,10 +300,10 @@ void* listening(void* arg)
 
         if(recv_size != -1)
         {
-            process_received_PDU(sys_socket, pdu_tmp, local, remote);
+            process_server_PDU(sys_socket, pdu_tmp, local, remote);
         } else {
-            /* This should never happen */
-            printf("Error in recv\n");
+            // socket closed
+            return NULL;
         }
     }
 }

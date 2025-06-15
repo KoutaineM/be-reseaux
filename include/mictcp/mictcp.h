@@ -27,7 +27,8 @@ typedef enum protocol_state
     ACCEPTING,
     SYN_RECEIVED,
     ESTABLISHED,
-    CLOSING
+    CLOSING,
+    AWAITING_CLOSING,
 } protocol_state;
 
 /*
@@ -71,14 +72,17 @@ typedef struct mic_tcp_sock
     mic_tcp_sock_addr remote_addr; /* adresse distante du socket */
     unsigned int current_seq_num;  /* PSE/PSA numéro de séquence */
 
-    // Connection asynchronisme
-    pthread_mutex_t connection_lock;
-    pthread_cond_t connection_cond;
+    // Connection asynchronism (server)
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+
+    pthread_t listen_thread;       /* client-side listening thread */
 
     // Sliding window
     int sliding_window;
     int sliding_window_consecutive_loss;
     int sliding_window_size;
+    int received_packets;
 
 
 } mic_tcp_sock;
@@ -194,6 +198,24 @@ int mic_tcp_close(int socket);
  * @param local_addr Local address
  * @param remote_addr Remote address
  */
-void process_received_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_ip_addr remote_addr);
+void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_ip_addr remote_addr);
+
+/**
+ * @brief Listens for incoming PDUs on the client side
+ * @param sys_socket System socket descriptor
+ */
+void listening_client(int sys_socket);
+
+/**
+ * @brief Processes a received PDU on the client side
+ * @param sys_socket System socket descriptor
+ * @param pdu Received PDU
+ * @param local_addr Local address
+ * @param remote_addr Remote address
+ */
+void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_ip_addr remote_addr);
+
+void socket_set_state(mic_tcp_sock* socket, protocol_state state);
+void socket_cleanup(mic_tcp_sock* sock);
 
 #endif
