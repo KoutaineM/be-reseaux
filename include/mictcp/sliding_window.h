@@ -16,12 +16,12 @@ extern int sliding_window_size;
  * @brief Updates the sliding window based on packet reception status
  * @param received 1 if packet was received successfully, 0 otherwise
  */
-void update_sliding_window(char received);
+void update_sliding_window(mic_tcp_sock *sock, char received);
 
 /**
  * @brief Verifies if the current packet loss rate is within acceptable limits
  * @return 1 if loss is acceptable, 0 otherwise
  */
-char verify_acceptable_loss(void);
+char verify_acceptable_loss(mic_tcp_sock *sock);
 
 #endif

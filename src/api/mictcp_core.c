@@ -10,10 +10,9 @@
  * API Variables *
  *****************/
 int initialized = -1;
-int sys_socket;
 pthread_t listen_th;
 pthread_mutex_t lock;
-unsigned short  loss_rate = 0;
+unsigned short loss_rate = 0;
 struct sockaddr_in remote_addr;
 
 /* This is for the buffer */
@@ -32,7 +31,7 @@ pthread_cond_t buffer_empty_cond;
  *************************/
 int initialize_components(start_mode mode)
 {
-    int bnd;
+    int bnd, sys_socket;
     struct hostent * hp;
     struct sockaddr_in local_addr;
 
@@ -53,6 +52,7 @@ int initialize_components(start_mode mode)
         if (bnd == -1)
         {
             initialized = -1;
+            close(sys_socket);
         }
         else
         {
@@ -63,8 +63,6 @@ int initialize_components(start_mode mode)
             memcpy (&(remote_addr.sin_addr.s_addr), hp->h_addr, hp->h_length);
             initialized = 1;
         }
-
-
     }
     else
     {
@@ -86,17 +84,14 @@ int initialize_components(start_mode mode)
 
     if((initialized == 1) && (mode == SERVER))
     {
-        pthread_create (&listen_th, NULL, listening, "1");
+        pthread_create(&listen_th, NULL, listening, (void *)(long)sys_socket);
     }
 
-    return initialized;
+    return initialized == 1 ? sys_socket : -1;
 }
 
-
-
-int IP_send(mic_tcp_pdu pk, mic_tcp_ip_addr addr)
+int IP_send(int sys_socket, mic_tcp_pdu pk, mic_tcp_ip_addr addr)
 {
-
     int result = -1;
     int random = rand();
     int lr_tresh = (int) round(((float)loss_rate/100.0)*RAND_MAX);
@@ -104,7 +99,6 @@ int IP_send(mic_tcp_pdu pk, mic_tcp_ip_addr addr)
 
     if(initialized == -1) {
         result = -1;
-
     } else {
         mic_tcp_payload tmp = get_full_stream(pk);
         int sent_size = tmp.size;
@@ -127,7 +121,7 @@ int IP_send(mic_tcp_pdu pk, mic_tcp_ip_addr addr)
     return result;
 }
 
-int IP_recv(mic_tcp_pdu* pk, mic_tcp_ip_addr* local_addr, mic_tcp_ip_addr* remote_addr, unsigned long timeout)
+int IP_recv(int sys_socket, mic_tcp_pdu* pk, mic_tcp_ip_addr* local_addr, mic_tcp_ip_addr* remote_addr, unsigned long timeout)
 {
     int result = -1;
 
@@ -164,7 +158,6 @@ int IP_recv(mic_tcp_pdu* pk, mic_tcp_ip_addr* local_addr, mic_tcp_ip_addr* remot
             remote_addr->addr = malloc(INET_ADDRSTRLEN);
             remote_addr->addr_size = INET_ADDRSTRLEN;
             inet_ntop(AF_INET, &(tmp_addr.sin_addr),remote_addr->addr,remote_addr->addr_size);
-            //remote_addr->addr = "localhost";
             remote_addr->addr_size = strlen(remote_addr->addr) + 1; // don't forget '\0'
         }
 
@@ -177,7 +170,6 @@ int IP_recv(mic_tcp_pdu* pk, mic_tcp_ip_addr* local_addr, mic_tcp_ip_addr* remot
 
         /* Correct the receved size */
         result -= API_HD_Size;
-
     }
 
     /* Free the reception buffer */
@@ -208,7 +200,6 @@ mic_tcp_payload get_mic_tcp_data(ip_payload buff)
     return tmp;
 }
 
-
 mic_tcp_header get_mic_tcp_header(ip_payload packet)
 {
     /* Get a struct header from an incoming packet */
@@ -216,8 +207,6 @@ mic_tcp_header get_mic_tcp_header(ip_payload packet)
     memcpy(&tmp, packet.data, API_HD_Size);
     return tmp;
 }
-
-
 
 int app_buffer_get(mic_tcp_payload app_buff)
 {
@@ -284,10 +273,9 @@ void app_buffer_put(mic_tcp_payload bf)
     pthread_cond_broadcast(&buffer_empty_cond);
 }
 
-
-
 void* listening(void* arg)
 {
+    int sys_socket = (int)(long)arg;
     mic_tcp_pdu pdu_tmp;
     int recv_size;
     mic_tcp_ip_addr remote;
@@ -301,26 +289,24 @@ void* listening(void* arg)
     pdu_tmp.payload.size = payload_size;
     pdu_tmp.payload.data = malloc(payload_size);
 
-    remote.addr=malloc(100);
-    remote.addr_size=100;
-
+    remote.addr = malloc(100);
+    remote.addr_size = 100;
 
     while(1)
     {
-        remote.addr_size=100;
+        remote.addr_size = 100;
         pdu_tmp.payload.size = payload_size;
-        recv_size = IP_recv(&pdu_tmp, &local, &remote, 0);
+        recv_size = IP_recv(sys_socket, &pdu_tmp, &local, &remote, 0);
 
         if(recv_size != -1)
         {
-            process_received_PDU(pdu_tmp, local, remote);
+            process_received_PDU(sys_socket, pdu_tmp, local, remote);
         } else {
             /* This should never happen */
             printf("Error in recv\n");
         }
     }
 }
-
 
 void set_loss_rate(unsigned short rate)
 {
