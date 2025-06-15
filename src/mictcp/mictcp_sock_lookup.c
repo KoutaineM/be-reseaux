@@ -31,7 +31,7 @@ void init_socket_array(void) {
         sockets[i].is_used = 0;
     }
     next_fd = 0;
-    printf(LOG_PREFIX ANSI_COLOR_GREEN "Socket Array Initialized" ANSI_COLOR_RESET "\n");
+    printf(LOG_PREFIX ANSI_COLOR_GREEN "Socket array initialized" ANSI_COLOR_RESET "\n");
 }
 
 /*
