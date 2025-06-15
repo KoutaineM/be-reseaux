@@ -247,7 +247,7 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) {
     pthread_mutex_lock(&sock->lock);
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 5 * TIMEOUT / 1000;
+    timeout.tv_sec += 10 * TIMEOUT / 1000;
     
     result = pthread_cond_timedwait(&sock->cond, &sock->lock, &timeout); // Wait for the last ACKs to arrive
     pthread_mutex_unlock(&sock->lock);
