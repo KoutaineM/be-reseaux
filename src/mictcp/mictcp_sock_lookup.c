@@ -31,7 +31,7 @@ void init_socket_array(void) {
         sockets[i].is_used = 0;
     }
     next_fd = 0;
-    printf(LOG_PREFIX ANSI_COLOR_GREEN "Socket Array Initialized" ANSI_COLOR_RESET "\n");
+    printf(LOG_PREFIX_MAIN_THREAD ANSI_COLOR_GREEN "Socket Array Initialized" ANSI_COLOR_RESET "\n");
 }
 
 /*
@@ -40,7 +40,7 @@ void init_socket_array(void) {
 int allocate_new_socket(int sys_socket) {
 
     if (next_fd == MAX_SOCKETS) {
-        printf(LOG_PREFIX ANSI_COLOR_RED "No available socket slots" ANSI_COLOR_RESET "\n");
+        printf(LOG_PREFIX_MAIN_THREAD ANSI_COLOR_RED "No available socket slots" ANSI_COLOR_RESET "\n");
         return -1;
     }
     int fd = next_fd++;

@@ -10,18 +10,18 @@
 void handle_awaiting_closing_state(mic_tcp_pdu* pdu, mic_tcp_sock* sock, int sys_socket, mic_tcp_ip_addr local_addr, mic_tcp_ip_addr remote_addr) {
 
     if (verify_pdu(pdu, 0, 1, 0, 0, 0)) {
-        printf(LOG_PREFIX ANSI_COLOR_GREEN "Final ACK received, connection closed"
+        printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_GREEN "Final ACK received, connection closed"
                 ANSI_COLOR_RESET "\n");
         socket_set_state(sock, CLOSED);
         socket_cleanup(sock);
     } else if (verify_pdu(pdu, 0, 0, 1, 0, 0)) {
-        printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received FIN again, initiating closure..." 
+        printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received FIN again, initiating closure..." 
                 ANSI_COLOR_RESET "\n");
         mic_tcp_pdu fin_ack = create_nopayload_pdu(0, 1, 1, 0, 0, pdu->header.dest_port, 
                                                     pdu->header.source_port);
         int result = IP_send(sys_socket, fin_ack, remote_addr);
         if (result == -1) {
-            printf(LOG_PREFIX ANSI_COLOR_RED "Failed to send FIN+ACK" ANSI_COLOR_RESET "\n");
+            printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_RED "Failed to send FIN+ACK" ANSI_COLOR_RESET "\n");
         }
     }
 
@@ -35,16 +35,16 @@ void handle_awaiting_closing_state(mic_tcp_pdu* pdu, mic_tcp_sock* sock, int sys
  * @param remote_addr Remote address
  */
 void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_ip_addr remote_addr) {
-    printf(LOG_PREFIX ANSI_COLOR_MAGENTA "Processing server PDU..." ANSI_COLOR_RESET "\n");
+    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_MAGENTA "Processing server PDU..." ANSI_COLOR_RESET "\n");
     
     mic_tcp_sock *sock = get_socket_by_sys_fd(sys_socket);
     if (!sock) {
-        printf(LOG_PREFIX ANSI_COLOR_RED "No socket found for system FD %d" ANSI_COLOR_RESET "\n", sys_socket);
+        printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_RED "No socket found for system FD %d" ANSI_COLOR_RESET "\n", sys_socket);
         return;
     }
 
     if (sock->state != AWAITING_CLOSING && verify_pdu(&pdu, 0, 0, 1, 0, 0)) {
-        printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received FIN, initiating closure..." 
+        printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received FIN, initiating closure..." 
                 ANSI_COLOR_RESET "\n");
         socket_set_state(sock, AWAITING_CLOSING);
         
@@ -53,7 +53,7 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
                                                     pdu.header.source_port);
         int result = IP_send(sys_socket, fin_ack, remote_addr);
         if (result == -1) {
-            printf(LOG_PREFIX ANSI_COLOR_RED "Failed to send FIN+ACK" ANSI_COLOR_RESET "\n");
+            printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_RED "Failed to send FIN+ACK" ANSI_COLOR_RESET "\n");
         }
         return;
     }
@@ -61,7 +61,7 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
     switch (sock->state) {
         case ACCEPTING:
             if (verify_pdu(&pdu, 1, 0, 0, 0, 0)) {
-                printf(LOG_PREFIX ANSI_COLOR_GREEN "SYN received" ANSI_COLOR_RESET "\n");
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_GREEN "SYN received" ANSI_COLOR_RESET "\n");
                 socket_set_state(sock, SYN_RECEIVED);
                 sock->remote_addr.ip_addr = remote_addr;
                 sock->remote_addr.port = pdu.header.source_port;
@@ -71,7 +71,7 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
             
         case SYN_RECEIVED:
             if (verify_pdu(&pdu, 0, 1, 0, 0, 0)) {
-                printf(LOG_PREFIX ANSI_COLOR_GREEN "ACK received, connection established" 
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_GREEN "ACK received, connection established" 
                        ANSI_COLOR_RESET "\n");
                 socket_set_state(sock, ESTABLISHED);
                 sock->current_seq_num = 1;
@@ -82,7 +82,7 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
         case ESTABLISHED:
             if (verify_pdu(&pdu, 0, 0, 0, 0, 0)) {
                 if (strcmp(pdu.payload.data, MESURING_PAYLOAD) == 0) {
-                    printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received measurement packet, sending ACK..." 
+                    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received measurement packet, sending ACK..." 
                            ANSI_COLOR_RESET "\n");
                     mic_tcp_pdu acknowledgment = create_nopayload_pdu(0, 1, 0, 0, 0,
                                                                     pdu.header.dest_port,
@@ -91,17 +91,17 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
                     break;
                 }
                 
-                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received data packet (Seq: %d, Expected: %d)" 
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received data packet (Seq: %d, Expected: %d)" 
                        ANSI_COLOR_RESET "\n", pdu.header.seq_num, sock->current_seq_num);
                 
                 if (verify_pdu(&pdu, 0, 0, 0, sock->current_seq_num, 0)) {
                     sock->current_seq_num++;
-                    printf(LOG_PREFIX ANSI_COLOR_GREEN "Data packet Accepted, using %d Bytes" 
+                    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_GREEN "Data packet Accepted, using %d Bytes" 
                            ANSI_COLOR_RESET "\n", pdu.payload.size);
                     app_buffer_put(pdu.payload);
                 }
                 
-                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Sending ACK (Ack: %d)..." ANSI_COLOR_RESET "\n",
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Sending ACK (Ack: %d)..." ANSI_COLOR_RESET "\n",
                        sock->current_seq_num);
                 mic_tcp_pdu acknowledgment = create_nopayload_pdu(0, 1, 0, 0,
                                                                 sock->current_seq_num,
@@ -109,10 +109,10 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
                                                                 pdu.header.source_port);
                 int result = IP_send(sys_socket, acknowledgment, sock->remote_addr.ip_addr);
                 if (result == -1) {
-                    printf(LOG_PREFIX ANSI_COLOR_RED "Failed to send ACK for Seq %d" 
+                    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_RED "Failed to send ACK for Seq %d" 
                            ANSI_COLOR_RESET "\n", sock->current_seq_num);
                 } else {
-                    printf(LOG_PREFIX ANSI_COLOR_GREEN "ACK sent successfully" ANSI_COLOR_RESET "\n");
+                    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_GREEN "ACK sent successfully" ANSI_COLOR_RESET "\n");
                 }
             }
             break;
@@ -123,7 +123,7 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
         
         case CLOSING:
             if (verify_pdu(&pdu, 0, 1, 1, 0, 0)) {
-                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received FIN+ACK..." 
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received FIN+ACK..." 
                        ANSI_COLOR_RESET "\n");
                 pthread_cond_signal(&sock->cond);
                 
@@ -134,7 +134,7 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
         case CLOSED:
         case SYN_SENT:
         case MEASURING_RELIABILITY:
-            printf(LOG_PREFIX ANSI_COLOR_YELLOW "PDU ignored in state %d" ANSI_COLOR_RESET "\n",
+            printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "PDU ignored in state %d" ANSI_COLOR_RESET "\n",
                    sock->state);
             break;
     }
@@ -142,12 +142,12 @@ void process_server_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
 
 
 void listening_client(int sys_socket) {
-    printf(LOG_PREFIX ANSI_COLOR_CYAN "Client listening thread started for sys FD %d" ANSI_COLOR_RESET "\n", sys_socket);
+    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_CYAN "Client listening thread started for sys FD %d" ANSI_COLOR_RESET "\n", sys_socket);
     
     while (1) {
         mic_tcp_sock *sock = get_socket_by_sys_fd(sys_socket);
         if (!sock || sock->state == CLOSED) {
-            printf(LOG_PREFIX ANSI_COLOR_YELLOW "Socket closed or invalid, exiting listening thread" ANSI_COLOR_RESET "\n");
+            printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Socket closed or invalid, exiting listening thread" ANSI_COLOR_RESET "\n");
             break;
         }
         
@@ -157,7 +157,7 @@ void listening_client(int sys_socket) {
         
         int result = IP_recv(sys_socket, &pdu, &local_addr, &remote_addr, 0);
         if (result == -1) {
-            printf(LOG_PREFIX ANSI_COLOR_YELLOW "No packet received, continuing..." ANSI_COLOR_RESET "\n");
+            printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "No packet received, continuing..." ANSI_COLOR_RESET "\n");
             continue;
         }
         
@@ -167,11 +167,11 @@ void listening_client(int sys_socket) {
 
 void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_addr, mic_tcp_ip_addr remote_addr) {
 
-    printf(LOG_PREFIX ANSI_COLOR_MAGENTA "Processing client PDU..." ANSI_COLOR_RESET "\n");
+    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_MAGENTA "Processing client PDU..." ANSI_COLOR_RESET "\n");
     
     mic_tcp_sock *sock = get_socket_by_sys_fd(sys_socket);
     if (!sock) {
-        printf(LOG_PREFIX ANSI_COLOR_RED "No socket found for System FD %d" ANSI_COLOR_RESET "\n", sys_socket);
+        printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_RED "No socket found for System FD %d" ANSI_COLOR_RESET "\n", sys_socket);
         return;
     }
 
@@ -195,14 +195,14 @@ void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
             
             if (verify_pdu(&pdu, 0, 1, 0, 0, 0)) { // Data ACK
 
-                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received data ACK..." 
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received data ACK..." 
                        ANSI_COLOR_RESET "\n");
                 sock->current_seq_num = pdu.header.ack_num;
                 pthread_cond_signal(&sock->cond);
 
             } else if (verify_pdu(&pdu, 0, 0, 1, 0, 0)) {
 
-                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received FIN, initiating closure..." 
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received FIN, initiating closure..." 
                        ANSI_COLOR_RESET "\n");
                 socket_set_state(sock, AWAITING_CLOSING);
                 
@@ -210,7 +210,7 @@ void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
                                                           pdu.header.source_port);
                 int result = IP_send(sys_socket, fin_ack, remote_addr);
                 if (result == -1) {
-                    printf(LOG_PREFIX ANSI_COLOR_RED "Failed to send FIN+ACK" ANSI_COLOR_RESET "\n");
+                    printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_RED "Failed to send FIN+ACK" ANSI_COLOR_RESET "\n");
                 }
             }
             break;
@@ -221,7 +221,7 @@ void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
 
         case CLOSING:
             if (verify_pdu(&pdu, 0, 1, 1, 0, 0)) {
-                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received FIN+ACK..." 
+                printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "Received FIN+ACK..." 
                        ANSI_COLOR_RESET "\n");
                 pthread_cond_signal(&sock->cond);
             }
@@ -232,7 +232,7 @@ void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
         case SYN_SENT:
         case ACCEPTING:
         case SYN_RECEIVED:
-            printf(LOG_PREFIX ANSI_COLOR_YELLOW "PDU ignored in state %d" ANSI_COLOR_RESET "\n", 
+            printf(LOG_PREFIX_NETWORK_THREAD ANSI_COLOR_YELLOW "PDU ignored in state %d" ANSI_COLOR_RESET "\n", 
                    sock->state);
             break;
     }
