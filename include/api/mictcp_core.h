@@ -1,7 +1,7 @@
 #ifndef MICTCP_CORE_H
 #define MICTCP_CORE_H
 
-#include <mictcp.h>
+#include "../mictcp/mictcp.h"
 #include <math.h>
 
 /**************************************************************

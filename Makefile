@@ -12,7 +12,7 @@ LD        := gcc
 
 TAR_FILENAME := $(DATE)-mictcp-$(TAG).tar.gz
 
-MODULES   := api apps
+MODULES   := api apps mictcp
 SRC_DIR   := $(addprefix src/,$(MODULES)) src
 BUILD_DIR := $(addprefix build/,$(MODULES)) build
 
