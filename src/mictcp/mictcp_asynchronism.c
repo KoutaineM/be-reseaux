@@ -181,6 +181,7 @@ void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
     }
     
     switch (sock->state) {
+
         case MEASURING_RELIABILITY:
             if (verify_pdu(&pdu, 0, 1, 0, 0, 0)) { // Measuring ACK
                 pthread_mutex_lock(&sock->lock);
@@ -189,11 +190,12 @@ void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
                 pthread_cond_signal(&sock->cond); // Signal that an ACK was received
             }
             break;
+
         case ESTABLISHED:
             
             if (verify_pdu(&pdu, 0, 1, 0, 0, 0)) { // Data ACK
 
-                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received Data ACK..." 
+                printf(LOG_PREFIX ANSI_COLOR_YELLOW "Received data ACK..." 
                        ANSI_COLOR_RESET "\n");
                 sock->current_seq_num = pdu.header.ack_num;
                 pthread_cond_signal(&sock->cond);
@@ -235,5 +237,4 @@ void process_client_PDU(int sys_socket, mic_tcp_pdu pdu, mic_tcp_ip_addr local_a
             break;
     }
     
-    pthread_mutex_unlock(&sock->lock);
 }

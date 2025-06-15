@@ -56,7 +56,7 @@ char verify_pdu(mic_tcp_pdu *pdu, char syn, char ack, char fin, int seq_num, int
     mic_tcp_header *header = &(pdu->header);
     
     // Check SYN and sequence number
-    if (header->syn != syn || (syn == 1 && header->seq_num != seq_num && seq_num != 0)) {
+    if (header->syn != syn) {
         return 0;
     }
     
@@ -67,6 +67,11 @@ char verify_pdu(mic_tcp_pdu *pdu, char syn, char ack, char fin, int seq_num, int
     
     // Check FIN flag
     if (header->fin != fin) {
+        return 0;
+    }
+
+    // Check SEQ NUM
+    if (seq_num != 0 && seq_num != pdu->header.seq_num) {
         return 0;
     }
     

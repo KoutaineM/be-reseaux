@@ -113,6 +113,9 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr *addr) {
         clock_gettime(CLOCK_REALTIME, &timeout);
         timeout.tv_sec += TIMEOUT / 1000;
         timeout.tv_nsec += (TIMEOUT % 1000) * 1e6;
+        if (timeout.tv_nsec > 1e9) {
+            timeout.tv_nsec %= (long) 1e9;
+        }
         
         result = pthread_cond_timedwait(&sock->cond, &sock->lock, &timeout);
         if (result != 0) {

@@ -24,19 +24,19 @@ int mic_tcp_send(int mic_sock, char *msg, int msg_size) {
         return -1;
     }
     
-    mic_tcp_pdu packet = create_nopayload_pdu(0, 0, 0, sock->current_seq_num, 0,
-                                             sock->local_addr.port,
-                                             sock->remote_addr.port);
-    mic_tcp_payload payload = { .data = msg, .size = msg_size };
-    packet.payload = payload;
-    
     int result;
     char msg_to_send = 1;
-    unsigned int expected_ack_num = sock->current_seq_num + 1;
     
     while (msg_to_send) {
         printf(LOG_PREFIX ANSI_COLOR_YELLOW "Sending packet (Seq: %d)..." ANSI_COLOR_RESET "\n",
                sock->current_seq_num);
+        mic_tcp_pdu packet = create_nopayload_pdu(0, 0, 0, sock->current_seq_num, 0,
+                                             sock->local_addr.port,
+                                             sock->remote_addr.port);
+        mic_tcp_payload payload = { .data = msg, .size = msg_size };
+        packet.payload = payload;
+        unsigned int expected_ack_num = sock->current_seq_num + 1;
+
         result = IP_send(sock->sys_socket, packet, sock->remote_addr.ip_addr);
         if (result == -1) {
             printf(LOG_PREFIX ANSI_COLOR_RED "Failed to send packet" ANSI_COLOR_RESET "\n");
@@ -50,21 +50,22 @@ int mic_tcp_send(int mic_sock, char *msg, int msg_size) {
         clock_gettime(CLOCK_REALTIME, &timeout);
         timeout.tv_sec += TIMEOUT / 1000;
         timeout.tv_nsec += (TIMEOUT % 1000) * 1e6;
+        if (timeout.tv_nsec > 1e9) {
+            timeout.tv_nsec %= (long) 1e9;
+        }
         
         result = pthread_cond_timedwait(&sock->cond, &sock->lock, &timeout);
+        pthread_mutex_unlock(&sock->lock);
         if (result == ETIMEDOUT) {
             printf(LOG_PREFIX ANSI_COLOR_YELLOW "Timeout waiting for ACK..." ANSI_COLOR_RESET "\n");
             if (verify_acceptable_loss(sock)) {
                 printf(LOG_PREFIX ANSI_COLOR_GREEN "Loss acceptable, continuing..." ANSI_COLOR_RESET "\n");
                 update_sliding_window(sock, 0);
-                pthread_mutex_unlock(&sock->lock);
                 return 0;
             }
-            pthread_mutex_unlock(&sock->lock);
             continue;
         } else if (result != 0) {
             printf(LOG_PREFIX ANSI_COLOR_RED "Error waiting for ACK: %d" ANSI_COLOR_RESET "\n", result);
-            pthread_mutex_unlock(&sock->lock);
             return -1;
         }
         
@@ -72,7 +73,6 @@ int mic_tcp_send(int mic_sock, char *msg, int msg_size) {
         if (sock->current_seq_num != expected_ack_num) {
             printf(LOG_PREFIX ANSI_COLOR_YELLOW "Invalid ACK number (%d != %d), retrying..." 
                    ANSI_COLOR_RESET "\n", sock->current_seq_num, expected_ack_num);
-            pthread_mutex_unlock(&sock->lock);
             continue;
         }
         
@@ -80,7 +80,6 @@ int mic_tcp_send(int mic_sock, char *msg, int msg_size) {
                ANSI_COLOR_RESET "\n", sock->current_seq_num - 1);
         msg_to_send = 0;
         update_sliding_window(sock, 1);
-        pthread_mutex_unlock(&sock->lock);
     }
     
     return msg_size;
@@ -148,6 +147,9 @@ int mic_tcp_close(int socket) {
         clock_gettime(CLOCK_REALTIME, &timeout);
         timeout.tv_sec += 5 * TIMEOUT / 1000;
         timeout.tv_nsec += (TIMEOUT % 1000) * 1e6;
+        if (timeout.tv_nsec > 1e9) {
+            timeout.tv_nsec %= (long) 1e9;
+        }
 
         pthread_mutex_lock(&sock->lock);
         result = pthread_cond_timedwait(&sock->cond, &sock->lock, &timeout);
