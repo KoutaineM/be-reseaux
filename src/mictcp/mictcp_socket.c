@@ -242,6 +242,14 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr) {
                    ANSI_COLOR_RESET "\n", i + 1);
             continue;
         }
+
+        struct timespec timeout;
+        clock_gettime(CLOCK_REALTIME, &timeout);
+        timeout.tv_sec += TIMEOUT / 1000;
+
+        pthread_mutex_lock(&sock->lock);
+        pthread_cond_timedwait(&sock->cond, &sock->lock, &timeout); // Wait for the last ACKs to arrive
+        pthread_mutex_unlock(&sock->lock);
     }
 
     pthread_mutex_lock(&sock->lock);
